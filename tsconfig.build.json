@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["bun"],
+    "rootDir": "transport",
+    "outDir": "dist",
+    "declaration": true,
+    "resolveJsonModule": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["transport/src/**/*.ts", "transport/schema/*.json"]
+}

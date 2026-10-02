@@ -1,201 +1,107 @@
-# @herdr/sdk
+# @sumostudio/herdr-sdk
 
-An Effect-native TypeScript SDK for Herdr's local protocol-21 socket API.
+Unofficial Effect-native protocol-20 transport fork of
+[Dillon Mulroy's Herdr TypeScript SDK](https://github.com/dmmulroy/herdr-ts-sdk).
+The original MIT attribution is preserved in `LICENSE`. The bundled native
+Herdr schema and generated declarations retain Apache-2.0 attribution and its
+complete license in `licenses/HERDR-APACHE-2.0.txt`. No upstream endorsement
+is implied.
 
-- yieldable, independently composable services
-- Stripe-style namespaces through `HerdrSdk`
-- schema-owned resources, inputs, events, and branded identifiers
-- granular typed failures
-- cold Effect event streams
-- scoped pane-graphics writers
-- generated private wire contracts
+Maintained in the [SumoStudio fork](https://github.com/dhruvkelawala/herdr-ts-sdk).
 
-## Requirements
+Candidate `0.8.2-sumostudio.1` packages the bounded transport used by SumoStudio.
+It exports `HerdrTransport`, its request/stream types,
+`herdrTransportLayer(socketPath)` and `readEvents`. The full upstream service API
+is excluded. [PROVENANCE.md](PROVENANCE.md) records source commits, local changes
+and the Herdr executable hash discrepancy.
 
-- Node.js 20 or newer
-- Effect `4.0.0-beta.105`
-- Herdr protocol 21
-- a running local Herdr session
+This is a local release candidate. Publication is blocked until an authenticated
+npm account confirms ownership of the `@sumostudio` scope. No package version is
+published and no SumoStudio registry dependency has been integrated yet.
 
-The package is ESM-only and does not depend on the Herdr binary package.
-Its bundled contract tracks Herdr `origin/master` commit
-`4a3b04f59ba3b7d8a15cea187b23e1e80c343b0c` (the protocol-21 revision audited
-after v0.8.2). Unix-domain sockets and Herdr's Windows named-pipe mapping are
-both supported.
+## Compatibility
 
-## Install
+| Component                                 | Candidate support                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| Herdr                                     | Stable `0.8.2`, protocol **20**                                          |
+| Effect and `@effect/platform-node-shared` | Exact `4.0.0-rc.112`                                                     |
+| Build and fixture tests                   | Bun `1.4.0`                                                              |
+| Emitted ESM                               | Node `26.10.0` or Bun `1.4.0`; verification records actual versions      |
+| Platforms                                 | Unix sockets; Windows pipe mapping retained, live Windows proof deferred |
+| Public API                                | Transport only with generated protocol-20 contracts                      |
 
-```sh
-pnpm add @herdr/sdk effect@4.0.0-beta.105
-```
+Every operation checks the protocol. Protocols 21 and 22 fail explicitly. Events
+are live-only; feed termination is typed loss of observation, not replay.
 
-## Root SDK
+## Read-only use
 
-`HerdrSdk` is a yieldable composition root. Its namespace values are the exact
-independent service implementations from the Layer graph.
-
-```ts
-import { Effect } from "effect";
-import { HerdrSdk, herdrSdkLayerFromOptions } from "@herdr/sdk";
-
-const program = Effect.gen(function* () {
-  const herdr = yield* HerdrSdk;
-
-  const created = yield* herdr.workspaces.create({
-    cwd: herdr.ids.absolutePath("/repo"),
-    label: "api",
-    focus: false,
-  });
-
-  const pane = yield* herdr.panes.split(created.rootPane.id, {
-    direction: "right",
-    ratio: 0.4,
-  });
-  yield* herdr.panes.sendText(pane.id, "pnpm test\n");
-  return created.workspace;
-});
-
-const workspace = await Effect.runPromise(
-  program.pipe(Effect.provide(herdrSdkLayerFromOptions({ session: "work" }))),
-);
-```
-
-Configuration selection is deterministic:
-
-1. explicit `socketPath` or `session`
-2. `HERDR_SOCKET_PATH`
-3. `HERDR_SESSION`
-4. the platform default socket
-
-Invalid selected input fails; it never silently falls through to a lower-priority
-source. `requestTimeout` accepts an Effect `Duration` and controls the local
-transport deadline. Operation fields named `timeoutMs` remain server-owned waits.
-
-## Direct service composition
-
-Applications that need one capability can depend on that service directly. The
-production service Layer supplies the ambient configuration and shared transport.
-
-```ts
-import { Effect } from "effect";
-import { WorkspaceService, workspaceServiceLayer } from "@herdr/sdk";
-
-const listWorkspaces = Effect.gen(function* () {
-  const workspaces = yield* WorkspaceService;
-  return yield* workspaces.list();
-}).pipe(Effect.provide(workspaceServiceLayer));
-```
-
-Every service also exports a `*LayerWithoutDependencies` variant that keeps its
-transport requirement visible for application-level composition and tests.
-
-## Typed failures and interruption
-
-Expected failures remain in each operation's Effect error channel. Server codes
-are open strings for forward compatibility, while transport, parsing, protocol,
-timeout, and graphics failures use distinct schema-backed tagged errors.
-
-```ts
-import { Duration, Effect } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
-
-const waitForReviewer = Effect.gen(function* () {
-  const herdr = yield* HerdrSdk;
-  return yield* herdr.agents.wait(
-    { name: herdr.ids.agentName("reviewer") },
-    { until: ["done", "blocked"] },
-    { requestTimeout: Duration.minutes(2) },
-  );
-}).pipe(
-  Effect.catchTags({
-    HerdrRequestTimeout: (error) => Effect.logWarning(error.message),
-    HerdrServerError: (error) => Effect.logWarning(error.serverMessage),
-  }),
-);
-```
-
-Effect interruption owns cancellation. There is no `AbortSignal` API; interrupting
-the fiber closes its socket.
-
-## Events
-
-`events.subscribe` returns a cold `Stream`. Each run acquires its own socket and
-releases it when the stream completes, fails, or is interrupted. Protocol 21
-subscriptions are live-only: the server starts their event sequence when it
-accepts the request and does not replay retained lifecycle events.
-
-To initialize a cache without a race, start consuming the subscription first,
-buffer its events, obtain `session.snapshot`, install the snapshot, and then
-apply the buffered events in order. A snapshot taken before the subscription is
-accepted can miss changes that occur between those two operations.
-
-```ts
-import { Effect, Stream } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
-
-const observe = Effect.gen(function* () {
-  const herdr = yield* HerdrSdk;
-  const paneId = herdr.ids.pane("workspace-1:pane-1");
-
-  yield* herdr.events
-    .subscribe([
-      { type: "workspace.created" },
-      { type: "pane.agent_status_changed", paneId },
-    ] as const)
-    .pipe(Stream.runForEach((event) => Effect.log(event.type)));
-});
-```
-
-Literal subscription specifications narrow the event union returned by the
-stream. `events.wait` remains a single Effect with the same match-specific
-narrowing.
-
-## Scoped pane graphics
-
-One-shot graphics writes validate a 512-KiB limit. Multi-frame writes use a
-scope-owned writer with a 16-MiB inline-frame limit; no manual `close()` is
-exposed. Protocol 21 also supports BGRA pixels, named layers with stable
-z-indexes, capability discovery, and immutable direct-file frames. Direct-file
-writes return Herdr's correlated sequence/revision acknowledgement, while the
-writer's background response loop retains asynchronous server failures for the
-next operation.
-
-```ts
-import { Effect } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
-
-const draw = Effect.scoped(
-  Effect.gen(function* () {
-    const herdr = yield* HerdrSdk;
-    const paneId = herdr.ids.pane("workspace-1:pane-1");
-    const writer = yield* herdr.panes.graphics.openLayerStream(paneId, {
-      layerId: "status-overlay",
-      zIndex: 10,
-    });
-
-    yield* writer.write({
-      format: "rgba",
-      imageWidth: 1,
-      imageHeight: 1,
-      data: Uint8Array.of(255, 0, 0, 255),
-    });
-  }),
-);
-```
-
-## Development
-
-This repository uses Vite+ for formatting, linting, typechecking, tests, and
-packaging.
+After publication to a controlled npm scope:
 
 ```sh
-vp install
-vp run generate
-vp check
-vp test
-vp run build
+bun add @sumostudio/herdr-sdk@0.8.2-sumostudio.1 effect@4.0.0-rc.112
 ```
 
-The bundled schema is `schema/herdr-api.schema.json`. Generation verifies every
-request method/result relationship. The binary `pane.graphics.stream` method is
-included explicitly because the upstream JSON Schema intentionally omits it.
+```ts
+import { Effect } from "effect";
+import { HerdrTransport, herdrTransportLayer } from "@sumostudio/herdr-sdk";
+
+const socketPath = "/explicit/path/to/herdr-api.sock";
+const ping = Effect.gen(function* () {
+  const herdr = yield* HerdrTransport;
+  const { result } = yield* herdr.request("ping", {});
+  return { version: result.version, protocol: result.protocol };
+}).pipe(Effect.provide(herdrTransportLayer(socketPath)));
+
+console.log(await Effect.runPromise(ping));
+```
+
+Sockets are explicit. Successful native payloads can contain terminal content
+and other private data. Callers must filter them before logging to shared product
+surfaces. The SDK never authorizes mutations on the caller's behalf.
+
+## Verify locally
+
+Use the exact toolchain in `package.json`. Node runs the real socket-fault probe
+and packed ESM checks. Upstream Vite+ tooling is not required.
+Release tooling uses Node `26.10.0`, npm `11.19.1`, TypeScript `5.9.2`,
+oxfmt `0.66.0` and oxlint `1.81.0`.
+
+```sh
+export HERDR_SDK_NODE="/absolute/path/to/real/node"
+bunx --bun bun@1.4.0 install --frozen-lockfile
+bunx --bun bun@1.4.0 run check
+bunx --bun bun@1.4.0 run verify:package
+bunx --bun bun@1.4.0 run smoke -- /explicit/path/to/herdr-api.sock
+```
+
+Package verification regenerates and compares declarations, builds, packs and
+audits the allowlist, then installs the tarball in a clean temporary consumer.
+Public imports typecheck; read-only ping and protocol rejection run under Bun and
+Node. The candidate and verification record live under ignored `.release/`.
+The live smoke imports that installed tarball and prints version/protocol plus
+commit, source fingerprint, tarball hash and runtime evidence. It refuses stale
+verification after release inputs, HEAD or the tarball change.
+It never creates, focuses, renames, closes, or sends text to workspaces/panes.
+
+`HERDR_SDK_NODE` selects the real Node executable for the diagnostic probe and
+consumer runtime check. `bunx --bun` can inject a Node-named Bun shim into PATH,
+so an ambient `node` command is insufficient proof of Node compatibility.
+
+## Release and rollback
+
+Resolve npm scope ownership, registry authentication, fork URL, executable
+identity and live proof before publishing. Local verification is not a published
+release. Run checks at the release commit and record tool versions, commit,
+tarball SHA-256 and smoke results. Use independent tag
+`sumostudio-v0.8.2-sumostudio.1` at that commit.
+
+Publish the verified tarball with dist tag `sumostudio`; read back registry
+metadata and the actual published tarball and inspect its hash/contents. Attach
+the same verified tag/commit to the GitHub release. Never use upstream scope
+`@herdr/sdk`.
+
+Integrate only the exact published version in SumoStudio, rerun its checks and
+live integration proof, and retain the embedded fork revision for rollback.
+Restore that exact embedded dependency/revision if necessary. Published versions
+and release tags are immutable; corrections require a new version. Upstream sync
+follows [PROVENANCE.md](PROVENANCE.md).

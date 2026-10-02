@@ -1,60 +1,81 @@
 {
-  "name": "@herdr/sdk",
-  "version": "0.8.2",
-  "description": "Effect-native TypeScript SDK for Herdr's local socket API.",
-  "homepage": "https://github.com/dmmulroy/herdr-ts-sdk#readme",
+  "name": "@sumostudio/herdr-sdk",
+  "version": "0.8.2-sumostudio.1",
+  "description": "Unofficial Effect-native Herdr protocol-20 transport fork for SumoStudio.",
+  "homepage": "https://github.com/dhruvkelawala/herdr-ts-sdk#readme",
   "bugs": {
-    "url": "https://github.com/dmmulroy/herdr-ts-sdk/issues"
+    "url": "https://github.com/dhruvkelawala/herdr-ts-sdk/issues"
   },
-  "license": "MIT",
+  "license": "(MIT AND Apache-2.0)",
+  "author": "Dillon Mulroy",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dmmulroy/herdr-ts-sdk.git"
+    "url": "git+https://github.com/dhruvkelawala/herdr-ts-sdk.git"
   },
   "files": [
-    "dist"
+    "dist/src/*.js",
+    "dist/src/*.d.ts",
+    "dist/src/generated/*.js",
+    "dist/src/generated/*.d.ts",
+    "dist/schema/herdr-api.schema.json",
+    "LICENSE",
+    "README.md",
+    "PROVENANCE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/HERDR-APACHE-2.0.txt"
   ],
   "type": "module",
+  "main": "./dist/src/herdr-transport.js",
+  "types": "./dist/src/herdr-transport.d.ts",
   "exports": {
-    ".": "./dist/index.mjs",
+    ".": {
+      "types": "./dist/src/herdr-transport.d.ts",
+      "import": "./dist/src/herdr-transport.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "sumostudio"
   },
   "scripts": {
-    "generate": "node scripts/generate-wire-types.mjs && vp fmt schema scripts src/generated",
-    "build": "vp run generate && vp pack",
-    "dev": "vp pack --watch",
-    "test": "vp test",
-    "check": "vp check",
-    "prepublishOnly": "vp run build"
+    "generate": "bun transport/scripts/generate-wire-types.mjs && oxfmt transport/src/generated",
+    "build": "tsc -p tsconfig.build.json",
+    "format": "oxfmt transport scripts/release tests package.json .oxfmtrc.json tsconfig.build.json tsconfig.transport.json oxlint.transport.json README.md PROVENANCE.md THIRD_PARTY_NOTICES.md",
+    "format:check": "oxfmt --check transport scripts/release tests package.json .oxfmtrc.json tsconfig.build.json tsconfig.transport.json oxlint.transport.json README.md PROVENANCE.md THIRD_PARTY_NOTICES.md",
+    "lint": "oxlint -c oxlint.transport.json transport scripts/release tests",
+    "typecheck": "tsc -p tsconfig.transport.json",
+    "test": "bun test ./transport ./tests",
+    "check": "bun install --frozen-lockfile --dry-run && bun run format:check && bun run lint && bun run build && bun run typecheck && bun run test",
+    "verify:package": "bun scripts/release/verify-package.mjs",
+    "smoke": "bun scripts/release/read-only-smoke.mjs",
+    "prepublishOnly": "bun run check && bun run verify:package"
   },
   "dependencies": {
-    "@effect/platform-node-shared": "4.0.0-beta.105",
-    "ajv": "^8.20.0",
-    "effect": "4.0.0-beta.105"
+    "@effect/platform-node-shared": "4.0.0-rc.112",
+    "ajv": "8.20.0",
+    "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "bumpp": "^11.1.0",
-    "json-schema-to-typescript": "^15.0.4",
-    "typescript": "^7.0.2",
-    "vite": "catalog:",
-    "vite-plus": "catalog:"
-  },
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "11.17.0",
-      "onFail": "download"
-    }
+    "@types/bun": "1.4.0",
+    "json-schema-to-typescript": "15.0.4",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.81.0",
+    "typescript": "5.9.2"
   },
   "engines": {
-    "node": ">=20"
+    "bun": "1.4.0",
+    "node": ">=26.10.0"
   },
+  "packageManager": "bun@1.4.0",
   "herdr": {
-    "protocol": 21,
-    "upstreamCommit": "4a3b04f59ba3b7d8a15cea187b23e1e80c343b0c"
+    "protocol": 20,
+    "version": "0.8.2",
+    "channel": "stable",
+    "sdkUpstreamCommit": "2e70f2638c53c5b0d2335f0641a479a0f42fd578"
+  },
+  "sumostudioRelease": {
+    "nodeVersion": "26.10.0",
+    "npmVersion": "11.19.1"
   }
 }
